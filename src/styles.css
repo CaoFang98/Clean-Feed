@@ -1,0 +1,91 @@
+/* CleanFeed 样式 */
+
+/* 包装器 */
+.cf-wrapper {
+  position: relative;
+  display: block;
+}
+
+/* 虚化效果 */
+.cf-blur {
+  transition: filter 0.3s ease;
+}
+
+.cf-blur:hover {
+  filter: blur(0) !important;
+}
+
+/* 标签样式 */
+.cf-label {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 1000;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+  max-width: 200px;
+}
+
+.cf-label-text {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.cf-label-confidence {
+  font-size: 10px;
+  opacity: 0.9;
+}
+
+/* 兼容旧的小红书样式（保留以平滑过渡） */
+.ai-content-wrapper {
+  position: relative;
+}
+
+.ai-content-blur {
+  filter: blur(8px);
+  transition: filter 0.3s ease;
+}
+
+.ai-content-blur:hover {
+  filter: blur(0);
+}
+
+.ai-detector-label {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 1000;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+}
+
+.ai-confidence-bar {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  right: 10px;
+  height: 6px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 3px;
+  overflow: hidden;
+  z-index: 1000;
+}
+
+.ai-confidence-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+  transition: width 0.3s ease;
+}

@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "CleanFeed - 内容过滤器",
+  "version": "1.0.0",
+  "description": "多平台内容过滤插件：检测并过滤AI内容、低质量内容、广告等",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://www.xiaohongshu.com/*",
+    "https://www.zhihu.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://www.xiaohongshu.com/*", "https://www.zhihu.com/*"],
+      "js": ["src/content.tsx"],
+      "css": ["src/styles.css"],
+      "run_at": "document_end"
+    }
+  ],
+  "background": {
+    "service_worker": "src/background.ts",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "index.html",
+    "default_title": "CleanFeed"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["assets/*"],
+      "matches": ["https://www.xiaohongshu.com/*", "https://www.zhihu.com/*"]
+    }
+  ]
+}

@@ -14,10 +14,14 @@ from typing import Optional, List, Dict
 app = FastAPI(title="CleanFeed API")
 
 # CORS: 仅允许浏览器扩展和本地开发访问
-ALLOWED_ORIGINS = os.getenv("CLEANFEED_CORS_ORIGINS", "chrome-extension://*,http://localhost:*").split(",")
+# allow_origin_regex 支持正则匹配，覆盖所有 chrome-extension:// 和 localhost 端口
+CORS_ORIGIN_REGEX = os.getenv(
+    "CLEANFEED_CORS_ORIGIN_REGEX",
+    r"^(chrome-extension://.*|http://localhost(:\d+)?)$"
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=CORS_ORIGIN_REGEX,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )

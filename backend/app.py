@@ -8,15 +8,17 @@ import requests
 import json
 import re
 import traceback
+from pathlib import Path
 from typing import Optional, List, Dict
 
 app = FastAPI(title="CleanFeed API")
 
-# Enable CORS for browser extension
+# CORS: 仅允许浏览器扩展和本地开发访问
+ALLOWED_ORIGINS = os.getenv("CLEANFEED_CORS_ORIGINS", "chrome-extension://*,http://localhost:*").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -29,46 +31,28 @@ except Exception as e:
     print(f"[CleanFeed] Warning: Failed to load embedding model: {e}")
     embedding_model = None
 
-# Local Ollama model configuration
-OLLAMA_ENABLED = True  # 开关：是否启用本地小模型
-OLLAMA_MODEL = "qwen3:8b"  # 你下载的模型名，这里改成你实际的模型名！！
-LOCAL_MODEL_CONFIDENCE_THRESHOLD = 0.9  # 置信度阈值，高于这个直接返回
+# Local Ollama model configuration (从环境变量读取，方便部署时调整)
+OLLAMA_ENABLED = os.getenv("OLLAMA_ENABLED", "true").lower() == "true"
+OLLAMA_API = os.getenv("OLLAMA_API", "http://localhost:11434/api/chat")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b")
+LOCAL_MODEL_CONFIDENCE_THRESHOLD = float(os.getenv("OLLAMA_CONFIDENCE_THRESHOLD", "0.9"))
 
 print(f"[CleanFeed] Local model enabled: {OLLAMA_ENABLED}, model: {OLLAMA_MODEL}")
 
 # Initialize Chroma DB
-chroma_client = chromadb.PersistentClient(path="./chroma_db")
+CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", "./chroma_db")
+chroma_client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
 collection = chroma_client.get_or_create_collection(name="content_examples")
 
-# Sample knowledge base (50 examples)
-SAMPLE_DATA = [
-    # Low-quality / AI-generated content examples
-    {"text": "家人们谁懂啊！今天真的是绝绝子！挖到宝了！这个东西真的是yyds！一定要买！", "label": "low_quality", "category": "xiaohongshu_spam"},
-    {"text": "姐妹们！这个真的太好用了！我已经用了一个月了，皮肤真的变好了！赶紧冲！", "label": "low_quality", "category": "xiaohongshu_ad"},
-    {"text": "家人们！今天给大家分享一个好东西！真的是太香了！不看后悔一辈子！", "label": "low_quality", "category": "clickbait"},
-    {"text": "宝子们！这个真的是绝了！我不允许还有人不知道！赶紧码住！", "label": "low_quality", "category": "xiaohongshu_spam"},
-    {"text": "家人们谁懂啊！这个真的是太好哭了！我真的会谢！", "label": "low_quality", "category": "xiaohongshu_spam"},
-    
-    {"text": "在当今社会，人工智能技术的发展日新月异。随着深度学习算法的不断优化，我们在自然语言处理、计算机视觉等领域取得了显著成就。", "label": "ai_generated", "category": "generic_ai"},
-    {"text": "随着经济全球化的深入发展，企业面临着前所未有的机遇和挑战。在这样的背景下，如何提升核心竞争力成为了每个企业必须思考的问题。", "label": "ai_generated", "category": "generic_ai"},
-    {"text": "教育是国之大计、党之大计。培养什么人、怎样培养人、为谁培养人是教育的根本问题。", "label": "ai_generated", "category": "generic_ai"},
-    
-    # High-quality / genuine content examples
-    {"text": "今天去了西湖，人真的很多，但是风景真的很美。拍了很多照片，虽然太阳很大有点晒，但是很开心。", "label": "genuine", "category": "personal"},
-    {"text": "最近在读《活着》，第三次读了，每次都有新的感受。余华的笔力真的太厉害了，富贵的一生让人唏嘘。", "label": "genuine", "category": "personal"},
-    {"text": "今天做了番茄炒蛋，有点咸了，下次少放点盐。不过整体味道还可以，配米饭吃了两大碗。", "label": "genuine", "category": "personal"},
-    {"text": "杭州的春天真的太美了，太子湾的郁金香开了，虽然人挤人，但是看到那么美的花还是觉得值了。", "label": "genuine", "category": "travel"},
-    {"text": "最近在学Python，跟着网上的教程做了一个小爬虫，虽然很简单，但是跑通的时候真的很有成就感！", "label": "genuine", "category": "tech"},
-    
-    # Zhihu low-quality examples
-    {"text": "谢邀。这个问题很简单。先说结论：是的。然后分几点：1. 首先2. 其次3. 最后。以上。", "label": "low_quality", "category": "zhihu_template"},
-    {"text": "这个问题我来回答一下。先占个坑，有空再来写。", "label": "low_quality", "category": "zhihu_placeholder"},
-    {"text": "先问是不是，再问为什么。", "label": "low_quality", "category": "zhihu_cliche"},
-    
-    # Zhihu high-quality examples
-    {"text": "这个问题我刚好有研究。从学术角度来看，主要有三个流派：第一个流派认为...第二个流派认为...第三个流派认为...我个人倾向于第一个流派，因为...", "label": "genuine", "category": "zhihu_quality"},
-    {"text": "分享一下我的亲身经历。三年前我也遇到了同样的问题，当时尝试了很多方法都没有用。后来偶然间看到一篇论文，里面提到一个思路，我试着调整了一下，没想到真的有效。具体来说是这样的...", "label": "genuine", "category": "personal_experience"},
-]
+# Load seed data from external JSON file
+SEED_DATA_PATH = Path(__file__).parent / "seed_data.json"
+try:
+    with open(SEED_DATA_PATH, "r", encoding="utf-8") as f:
+        SAMPLE_DATA = json.load(f)
+    print(f"[CleanFeed] Loaded {len(SAMPLE_DATA)} seed examples from {SEED_DATA_PATH}")
+except Exception as e:
+    print(f"[CleanFeed] Warning: Failed to load seed data: {e}")
+    SAMPLE_DATA = []
 
 class ClassifyRequest(BaseModel):
     text: str
@@ -131,9 +115,6 @@ def detect_with_local_model(text: str, platform: Optional[str] = None) -> Option
         return None
     
     try:
-        # 改用Ollama原生API，兼容性更好
-        OLLAMA_NATIVE_API = "http://localhost:11434/api/chat"
-        
         prompt = f"""
         你是知乎内容分类助手，严格按照以下要求输出：
         1. 判断内容是否为低质量，标签分为三类：low_quality（低质量）、ai_generated（AI生成）、genuine（正常）
@@ -144,7 +125,7 @@ def detect_with_local_model(text: str, platform: Optional[str] = None) -> Option
         """
         
         print(f"\n[CleanFeed] === Calling local model: {OLLAMA_MODEL} ===")
-        response = requests.post(OLLAMA_NATIVE_API, json={
+        response = requests.post(OLLAMA_API, json={
             "model": OLLAMA_MODEL,
             "temperature": 0.1,
             "stream": False,  # 关闭流式输出，一次返回

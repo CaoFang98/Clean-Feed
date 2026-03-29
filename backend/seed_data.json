@@ -1,0 +1,24 @@
+[
+  {"text": "家人们谁懂啊！今天真的是绝绝子！挖到宝了！这个东西真的是yyds！一定要买！", "label": "low_quality", "category": "xiaohongshu_spam"},
+  {"text": "姐妹们！这个真的太好用了！我已经用了一个月了，皮肤真的变好了！赶紧冲！", "label": "low_quality", "category": "xiaohongshu_ad"},
+  {"text": "家人们！今天给大家分享一个好东西！真的是太香了！不看后悔一辈子！", "label": "low_quality", "category": "clickbait"},
+  {"text": "宝子们！这个真的是绝了！我不允许还有人不知道！赶紧码住！", "label": "low_quality", "category": "xiaohongshu_spam"},
+  {"text": "家人们谁懂啊！这个真的是太好哭了！我真的会谢！", "label": "low_quality", "category": "xiaohongshu_spam"},
+
+  {"text": "在当今社会，人工智能技术的发展日新月异。随着深度学习算法的不断优化，我们在自然语言处理、计算机视觉等领域取得了显著成就。", "label": "ai_generated", "category": "generic_ai"},
+  {"text": "随着经济全球化的深入发展，企业面临着前所未有的机遇和挑战。在这样的背景下，如何提升核心竞争力成为了每个企业必须思考的问题。", "label": "ai_generated", "category": "generic_ai"},
+  {"text": "教育是国之大计、党之大计。培养什么人、怎样培养人、为谁培养人是教育的根本问题。", "label": "ai_generated", "category": "generic_ai"},
+
+  {"text": "今天去了西湖，人真的很多，但是风景真的很美。拍了很多照片，虽然太阳很大有点晒，但是很开心。", "label": "genuine", "category": "personal"},
+  {"text": "最近在读《活着》，第三次读了，每次都有新的感受。余华的笔力真的太厉害了，富贵的一生让人唏嘘。", "label": "genuine", "category": "personal"},
+  {"text": "今天做了番茄炒蛋，有点咸了，下次少放点盐。不过整体味道还可以，配米饭吃了两大碗。", "label": "genuine", "category": "personal"},
+  {"text": "杭州的春天真的太美了，太子湾的郁金香开了，虽然人挤人，但是看到那么美的花还是觉得值了。", "label": "genuine", "category": "travel"},
+  {"text": "最近在学Python，跟着网上的教程做了一个小爬虫，虽然很简单，但是跑通的时候真的很有成就感！", "label": "genuine", "category": "tech"},
+
+  {"text": "谢邀。这个问题很简单。先说结论：是的。然后分几点：1. 首先2. 其次3. 最后。以上。", "label": "low_quality", "category": "zhihu_template"},
+  {"text": "这个问题我来回答一下。先占个坑，有空再来写。", "label": "low_quality", "category": "zhihu_placeholder"},
+  {"text": "先问是不是，再问为什么。", "label": "low_quality", "category": "zhihu_cliche"},
+
+  {"text": "这个问题我刚好有研究。从学术角度来看，主要有三个流派：第一个流派认为...第二个流派认为...第三个流派认为...我个人倾向于第一个流派，因为...", "label": "genuine", "category": "zhihu_quality"},
+  {"text": "分享一下我的亲身经历。三年前我也遇到了同样的问题，当时尝试了很多方法都没有用。后来偶然间看到一篇论文，里面提到一个思路，我试着调整了一下，没想到真的有效。具体来说是这样的...", "label": "genuine", "category": "personal_experience"}
+]

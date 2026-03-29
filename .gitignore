@@ -32,6 +32,7 @@ backend/chroma_db
 *.njsproj
 *.sln
 *.sw?
+venv/
 
 # Temporary files
 *.tmp

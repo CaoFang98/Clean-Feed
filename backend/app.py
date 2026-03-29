@@ -4,6 +4,10 @@ from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 import chromadb
 import os
+import requests
+import json
+import re
+import traceback
 from typing import Optional, List, Dict
 
 app = FastAPI(title="CleanFeed API")
@@ -24,6 +28,13 @@ try:
 except Exception as e:
     print(f"[CleanFeed] Warning: Failed to load embedding model: {e}")
     embedding_model = None
+
+# Local Ollama model configuration
+OLLAMA_ENABLED = True  # 开关：是否启用本地小模型
+OLLAMA_MODEL = "qwen3:8b"  # 你下载的模型名，这里改成你实际的模型名！！
+LOCAL_MODEL_CONFIDENCE_THRESHOLD = 0.9  # 置信度阈值，高于这个直接返回
+
+print(f"[CleanFeed] Local model enabled: {OLLAMA_ENABLED}, model: {OLLAMA_MODEL}")
 
 # Initialize Chroma DB
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
@@ -70,6 +81,7 @@ class ClassifyResponse(BaseModel):
     label: str
     reason: str
     rag_example: Optional[str] = None
+    detect_method: Optional[str] = None  # 新增：检测方式 local_model / rag
 
 def init_knowledge_base():
     """Initialize Chroma DB with sample data"""
@@ -112,6 +124,73 @@ def rag_retrieve(text: str, top_k: int = 3) -> List[Dict]:
     except Exception as e:
         print(f"[CleanFeed] RAG retrieve error: {e}")
         return []
+
+def detect_with_local_model(text: str, platform: Optional[str] = None) -> Optional[ClassifyResponse]:
+    """用本地Ollama模型检测内容，失败返回None走RAG兜底"""
+    if not OLLAMA_ENABLED:
+        return None
+    
+    try:
+        # 改用Ollama原生API，兼容性更好
+        OLLAMA_NATIVE_API = "http://localhost:11434/api/chat"
+        
+        prompt = f"""
+        你是知乎内容分类助手，严格按照以下要求输出：
+        1. 判断内容是否为低质量，标签分为三类：low_quality（低质量）、ai_generated（AI生成）、genuine（正常）
+        2. 只输出JSON，不要任何其他内容、不要markdown、不要解释、不要```包裹：
+        {{"label": "xxx", "confidence": 0.xx, "reason": "20字以内简短原因"}}
+        3. 置信度0-1之间，越高越确定
+        要判断的内容：{text[:500]}
+        """
+        
+        print(f"\n[CleanFeed] === Calling local model: {OLLAMA_MODEL} ===")
+        response = requests.post(OLLAMA_NATIVE_API, json={
+            "model": OLLAMA_MODEL,
+            "temperature": 0.1,
+            "stream": False,  # 关闭流式输出，一次返回
+            "messages": [{"role": "user", "content": prompt}]
+        }, timeout=60)  # 超时拉长到60秒，首次加载足够
+        
+        print(f"[CleanFeed] Local model response status: {response.status_code}")
+        if response.status_code != 200:
+            print(f"[CleanFeed] Local model error response: {response.text[:200]}")
+            return None
+            
+        result = response.json()
+        content = result["message"]["content"].strip()
+        print(f"[CleanFeed] Local model raw output: {content}")
+        
+        # 容错提取JSON，兼容模型输出带markdown/多余内容的情况
+        json_match = re.search(r'\{.*\}', content, re.DOTALL)
+        if not json_match:
+            print(f"[CleanFeed] No JSON found in output")
+            return None
+            
+        json_str = json_match.group(0)
+        data = json.loads(json_str)
+        
+        # 校验字段完整性
+        required_fields = ["label", "confidence", "reason"]
+        if not all(f in data for f in required_fields):
+            print(f"[CleanFeed] Missing required fields in output")
+            return None
+            
+        # 转换为标准响应格式
+        res = ClassifyResponse(
+            is_low_quality=data["label"] in ["low_quality", "ai_generated"],
+            is_ai_generated=data["label"] == "ai_generated",
+            confidence=round(float(data["confidence"]), 2),
+            label=data["label"],
+            reason=data["reason"],
+            rag_example=None,
+            detect_method="local_model"
+        )
+        print(f"[CleanFeed] Local model parsed result: {res.model_dump()}")
+        return res
+    except Exception as e:
+        print(f"[CleanFeed] Local model detect error: {str(e)}")
+        traceback.print_exc()
+        return None
 
 def classify_with_rag(text: str, platform: Optional[str] = None) -> ClassifyResponse:
     """Classify content with RAG retrieval"""
@@ -188,7 +267,8 @@ def classify_with_rag(text: str, platform: Optional[str] = None) -> ClassifyResp
         confidence=round(confidence, 2),
         label=label,
         reason=reason,
-        rag_example=rag_example
+        rag_example=rag_example,
+        detect_method="rag"
     )
 
 @app.on_event("startup")
@@ -202,8 +282,18 @@ async def root():
 @app.post("/classify", response_model=ClassifyResponse)
 async def classify(request: ClassifyRequest):
     try:
-        result = classify_with_rag(request.text, request.platform)
-        return result
+        # 第一步：优先调用本地小模型
+        local_result = detect_with_local_model(request.text, request.platform)
+        
+        # 本地模型返回成功，且置信度足够，直接返回结果
+        if local_result and local_result.confidence >= LOCAL_MODEL_CONFIDENCE_THRESHOLD:
+            print(f"[CleanFeed] Used local model, confidence: {local_result.confidence}")
+            return local_result
+        
+        # 本地模型失败/置信度不够，走RAG兜底
+        print(f"[CleanFeed] Fallback to RAG detection")
+        rag_result = classify_with_rag(request.text, request.platform)
+        return rag_result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

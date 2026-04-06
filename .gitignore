@@ -52,3 +52,4 @@ data/*
 # Scripts directory (keep finetune script, but not data)
 scripts/*.pyc
 scripts/__pycache__
+scripts/*/__pycache__

@@ -1,195 +1,234 @@
-# 数据集构建指南
+# 数据集指南
 
-本指南说明如何构建 CleanFeed 项目的训练数据集。
+本指南说明 CleanFeed 当前使用的数据结构、样本来源、清洗流程、打标流程和训练输入约定。
 
----
+## 目标
 
-## 📋 目录
+CleanFeed 的数据链路服务于两个核心目标：
 
-- [数据规模](#数据规模)
-- [数据来源](#数据来源)
-- [标注规范](#标注规范)
-- [数据格式](#数据格式)
-- [LLM 批量打标脚本](#llm-批量打标脚本)
+- 让浏览器插件和训练数据使用同一份输入视角
+- 让每条样本可以同时承载多个独立任务标签
 
----
+当前默认任务：
 
-## 📊 数据规模
+- `is_low_quality`
+- `is_ai_generated`
 
-- **总样本数**：200-500 条
-- **类别分布**：
-  - `genuine`（真实内容）：40%
-  - `low_quality`（低质量内容）：35%
-  - `ai_generated`（AI生成内容）：25%
+## 样本结构
 
----
+清洗后的主样本文件为 `data/zhihu_cleaned_data.jsonl`。每条样本包含以下核心字段：
 
-## 🌐 数据来源
-
-> **合规声明**：本项目收集的数据仅用于个人学习和学术研究目的，不用于商业用途。
-> 爬取脚本已设置合理的请求间隔以降低对平台的影响。原始数据不会公开发布，
-> 仅用于训练本地内容质量检测模型。请使用者遵守相关平台的服务条款。
-
-### 1. 小红书
-
-- **探索页/推荐页** - 自然浏览，复制笔记内容
-- **搜索页** - 搜索关键词，复制结果
-- **注意**：只复制公开内容，尊重版权
-
-### 2. 知乎
-
-- **推荐页** - 自然浏览，复制回答/文章
-- **热榜** - 复制热榜内容
-- **话题页** - 从不同话题复制
-- **注意**：使用 `scripts/crawl_zhihu.py` 自动采集时已设置 3-6 秒随机延迟
-
-### 3. AI 生成内容（可选）
-
-可以用 LLM 生成一些样本作为辅助：
-
-```
-请生成 5 条小红书风格的笔记，内容是关于美妆/穿搭/美食的
+```json
+{
+  "sample_id": "7f5a2e91f6a8b2c1",
+  "question": "为什么山火一定要灭，不能让它自己烧完吗？",
+  "model_input": "问题：为什么山火一定要灭，不能让它自己烧完吗？\n回答预览：建议了解一下1987年大兴安岭特大森林火灾……",
+  "answer_preview": "建议了解一下1987年大兴安岭特大森林火灾……",
+  "answer_full_clean": "建议了解一下1987年大兴安岭特大森林火灾。持续燃烧了28个昼夜……",
+  "task_annotations": {
+    "is_low_quality": {
+      "label": null,
+      "status": "unlabeled",
+      "reason": "",
+      "annotator": "",
+      "source": "pending",
+      "confidence": null
+    },
+    "is_ai_generated": {
+      "label": null,
+      "status": "unlabeled",
+      "reason": "",
+      "annotator": "",
+      "source": "pending",
+      "confidence": null
+    }
+  }
+}
 ```
 
----
+## 输入视角
 
-## 🏷️ 标注规范
+训练和插件推理共用统一输入：
 
-### 三分类标注
-
-| 标签 | 说明 | 示例 |
-|------|------|------|
-| `genuine` | 真实、高质量内容 | "今天去了西湖，人真的很多..." |
-| `low_quality` | 低质量、水帖、营销 | "家人们谁懂啊！这个绝绝子..." |
-| `ai_generated` | AI 生成内容 | "随着人工智能技术的发展..." |
-
-### 标注原则
-
-1. **优先判断**：如果同时符合多个，按 `ai_generated` > `low_quality` > `genuine` 优先级
-2. **模糊案例**：拿不准的标 `genuine`，宁缺毋滥
-3. **边界感**：不要过度标注，明显有问题的才标
-
----
-
-## 📄 数据格式
-
-### CSV 格式（推荐，简单易编辑）
-
-```csv
-text,label,platform,notes
-"今天去了西湖...","genuine","xiaohongshu",""
-"家人们谁懂啊...","low_quality","xiaohongshu",""
-"随着人工智能的发展...","ai_generated","zhihu",""
+```text
+问题：{question}
+回答预览：{answer_preview}
 ```
 
-### JSONL 格式（HuggingFace 标准）
+字段说明：
 
-```jsonl
-{"text": "今天去了西湖...", "label": "genuine", "platform": "xiaohongshu"}
-{"text": "家人们谁懂啊...", "label": "low_quality", "platform": "xiaohongshu"}
-{"text": "随着人工智能的发展...", "label": "ai_generated", "platform": "zhihu"}
+- `answer_full_clean`
+  - 清洗后的完整回答
+  - 用于人工参考
+- `answer_preview`
+  - 模拟插件在 Feed 中可见的回答片段
+- `model_input`
+  - 训练和推理的统一输入
+- `task_annotations`
+  - 当前样本的任务化标签
+
+## 数据来源
+
+### 原始采集文件
+
+- `data/zhihu_raw_data.jsonl`
+
+主要字段包括：
+
+- `question`
+- `question_detail`
+- `answer_full`
+- `answer_truncated`
+- `author`
+- `votes`
+- `comment_count`
+- `platform`
+- `url`
+- `collected_at`
+
+### 清洗后样本文件
+
+- `data/zhihu_cleaned_data.jsonl`
+
+这是后续自动打标、人工复核和训练的主输入文件。
+
+## 清洗流程
+
+清洗脚本：
+
+- `scripts/label/clean_data.py`
+
+运行方式：
+
+```bash
+python3 scripts/label/clean_data.py
 ```
 
----
+当前清洗规则：
 
-## 🤖 LLM 批量打标脚本
+- 解 HTML 实体
+- 去除 HTML 标签
+- 去除零宽字符
+- 压缩空白字符
+- 过滤过短回答
+- 生成 `answer_preview`
+- 生成 `model_input`
+- 初始化空的 `task_annotations`
 
-这是一个简单的 Python 脚本，可以用 LLM 批量打标，然后人工校验。
+清洗流程不删除广告词、引流词、AI 写作痕迹等语义信号。
 
-```python
-import json
-import time
-from typing import List, Dict
-from openai import OpenAI
+## 标注结构
 
-# 配置你的 API（DeepSeek / OpenAI / 通义千问都可以）
-client = OpenAI(
-    api_key="your_api_key_here",
-    base_url="https://api.deepseek.com/v1"  # 或其他兼容端点
-)
+每个任务使用统一标注结构：
 
-def classify_with_llm(text: str) -> Dict:
-    """用 LLM 分类单条文本"""
-    
-    prompt = f"""你是一个内容分类助手，请将以下内容分类为三类之一：
-- genuine: 真实、高质量的内容
-- low_quality: 低质量、水帖、营销内容
-- ai_generated: AI生成的内容
-
-只返回 JSON，格式：{{"label": "xxx", "confidence": 0.xx, "reason": "简短原因"}}
-
-要分类的内容：
-{text}
-"""
-    
-    try:
-        response = client.chat.completions.create(
-            model="deepseek-chat",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
-            response_format={"type": "json_object"}
-        )
-        
-        result = json.loads(response.choices[0].message.content)
-        return {
-            "label": result.get("label", "genuine"),
-            "confidence": result.get("confidence", 0.5),
-            "reason": result.get("reason", ""),
-            "text": text
-        }
-    except Exception as e:
-        print(f"Error: {e}")
-        return {"label": "genuine", "confidence": 0.5, "reason": "failed", "text": text}
-
-def batch_classify(texts: List[str], delay: float = 1.0) -> List[Dict]:
-    """批量分类"""
-    results = []
-    for i, text in enumerate(texts):
-        print(f"Classifying {i+1}/{len(texts)}...")
-        result = classify_with_llm(text)
-        results.append(result)
-        time.sleep(delay)  # 避免触发速率限制
-    return results
-
-# 使用示例
-if __name__ == "__main__":
-    # 你的未标注数据
-    raw_texts = [
-        "今天去了西湖，人真的很多...",
-        "家人们谁懂啊！这个绝绝子...",
-        # ... 更多数据
-    ]
-    
-    # 批量分类
-    results = batch_classify(raw_texts)
-    
-    # 保存结果
-    with open("data_labeled.jsonl", "w", encoding="utf-8") as f:
-        for r in results:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
-    
-    print("Done! Now please review the labels manually.")
+```json
+{
+  "label": true,
+  "status": "labeled_positive",
+  "reason": "广告营销/引流",
+  "annotator": "human_default",
+  "source": "human",
+  "confidence": 1.0
+}
 ```
 
-### 使用流程
+字段说明：
 
-1. **收集原始数据** - 把收集到的文本放到一个列表里
-2. **LLM 批量打标** - 运行上面的脚本
-3. **人工校验** - 逐条检查 LLM 的标注，修正错误
-4. **导出数据集** - 保存为 csv 或 jsonl 格式
+- `label`
+  - `true`
+  - `false`
+  - `null`
+- `status`
+  - `unlabeled`
+  - `labeled_positive`
+  - `labeled_negative`
+- `reason`
+  - 当前任务下的命中原因
+- `annotator`
+  - 标注人或模型名
+- `source`
+  - `human`
+  - `auto`
+  - `human_reviewed_auto`
+  - `pending`
+- `confidence`
+  - 自动打标或人工确认的置信信息
 
----
+## 自动打标
 
-## ✅ 质量检查
+自动打标入口：
 
-标注完成后，检查：
+- `scripts/label/auto_labeler.py`
 
-- [ ] 类别分布基本合理（不要某一类太少）
-- [ ] 边界案例都检查过了
-- [ ] 文本长度适中（太短/太长的可以过滤）
-- [ ] 没有重复数据
-- [ ] 格式正确，没有乱码
+示例：
 
----
+```bash
+python3 scripts/label/auto_labeler.py \
+  --provider local \
+  --input-path data/zhihu_cleaned_data.jsonl \
+  --output-path data/task_prelabeled_dataset.jsonl \
+  --text-field model_input \
+  --output-format hybrid
+```
 
-准备好数据集后，就可以开始微调了！详见 [scripts/finetune_lora.py](../scripts/finetune_lora.py)
+支持的 provider：
+
+- `local`
+- `doubao`
+- `qwen`
+- `openai`
+
+输出模式：
+
+- `review`
+  - 只写 `predicted_task_annotations`
+- `train`
+  - 直接写 `task_annotations`
+- `hybrid`
+  - 同时写 `predicted_task_annotations` 和 `task_annotations`
+
+## 人工复核
+
+人工复核入口：
+
+- `scripts/label/manual_labeler.py`
+
+示例：
+
+```bash
+python3 scripts/label/manual_labeler.py \
+  --input-path data/zhihu_cleaned_data.jsonl \
+  --prelabel-path data/task_prelabeled_dataset.jsonl \
+  --output-path data/task_labeled_dataset.jsonl
+```
+
+人工复核器会展示：
+
+- `model_input`
+- `answer_preview`
+- `answer_full_clean`
+- 自动打标建议
+
+并按 `sample_id` 自动跳过已完成样本。
+
+## 训练数据约定
+
+训练时按单个任务切片：
+
+- 训练 `is_low_quality`
+  - 只取 `task_annotations.is_low_quality.label in {true, false}` 的样本
+- 训练 `is_ai_generated`
+  - 只取 `task_annotations.is_ai_generated.label in {true, false}` 的样本
+
+这允许后续继续增加新任务，而不需要改动整体数据结构。
+
+## 常用文件
+
+- `data/zhihu_raw_data.jsonl`
+- `data/zhihu_cleaned_data.jsonl`
+- `data/task_prelabeled_dataset.jsonl`
+- `data/task_labeled_dataset.jsonl`
+- `scripts/task_config.py`
+- `scripts/label/clean_data.py`
+- `scripts/label/auto_labeler.py`
+- `scripts/label/manual_labeler.py`

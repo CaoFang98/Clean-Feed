@@ -4,6 +4,7 @@ import { Post } from '../core/types';
 export class ZhihuAdapter extends PlatformAdapter {
   readonly id = 'zhihu';
   readonly name = '知乎';
+  private readonly previewMaxChars = 200;
 
   private static instance: ZhihuAdapter;
 
@@ -21,15 +22,12 @@ export class ZhihuAdapter extends PlatformAdapter {
   getPosts(): Post[] {
     const posts: Post[] = [];
     
-    // 知乎常见的帖子/回答容器
+    // 尽量聚焦回答/文章卡片，避免把整页容器或纯问题卡片也送进检测器
     const selectors = [
-      '.Feed-item',              // 信息流
-      '.AnswerItem',             // 回答列表
-      '.QuestionItem',           // 问题列表
-      '[class*="Card"]',         // 卡片
-      '[class*="List-item"]',    // 列表项
-      '[data-zop-feedlist]',     // 信息流标记
-      'article',                 // 文章
+      '.Feed-item',
+      '.AnswerItem',
+      '.ContentItem',
+      'article',
     ];
     
     const elements = new Set<Element>();
@@ -40,10 +38,10 @@ export class ZhihuAdapter extends PlatformAdapter {
     console.log(`[CleanFeed] 📝 知乎找到 ${elements.size} 个潜在帖子元素`);
 
     elements.forEach((element) => {
-      const text = this.extractText(element as HTMLElement);
+      const postContent = this.extractPostContent(element as HTMLElement);
       
-      // 过滤掉太短的内容
-      if (text.length < 20) {
+      // 只处理能稳定提取出“回答预览”的卡片
+      if (!postContent || postContent.answerPreview.length < 20) {
         return;
       }
       
@@ -58,9 +56,22 @@ export class ZhihuAdapter extends PlatformAdapter {
       const post: Post = {
         id: this.generateId(element as HTMLElement),
         element: element as HTMLElement,
-        text,
+        text: postContent.modelInput,
+        metadata: {
+          question: postContent.question,
+          answerPreview: postContent.answerPreview,
+          answerLength: postContent.answerPreview.length,
+        },
         detectionResults: new Map(),
       };
+
+      console.log('[CleanFeed] 🧾 知乎提取结果:', {
+        question: postContent.question || '(无问题标题)',
+        answerPreview: postContent.answerPreview,
+        modelInput: postContent.modelInput,
+        answerLength: postContent.answerPreview.length,
+        modelInputLength: postContent.modelInput.length,
+      });
       
       posts.push(post);
     });
@@ -70,6 +81,71 @@ export class ZhihuAdapter extends PlatformAdapter {
   }
 
   extractText(element: HTMLElement): string {
+    const postContent = this.extractPostContent(element);
+    if (postContent) {
+      return postContent.modelInput;
+    }
+    return this.normalizeText(element.innerText || element.textContent || '');
+  }
+
+  private extractPostContent(element: HTMLElement): { question: string; answerPreview: string; modelInput: string } | null {
+    const question = this.extractQuestion(element);
+    const answerPreview = this.extractAnswerPreview(element);
+
+    if (!answerPreview) {
+      return null;
+    }
+
+    return {
+      question,
+      answerPreview,
+      modelInput: this.buildModelInput(question, answerPreview),
+    };
+  }
+
+  private extractQuestion(element: HTMLElement): string {
+    const questionSelectors = [
+      '.ContentItem-title',
+      '.QuestionItem-title',
+      'h2 a',
+      'h2',
+    ];
+
+    for (const selector of questionSelectors) {
+      const questionEl = element.querySelector(selector);
+      const text = this.normalizeText(questionEl?.textContent || '');
+      if (text.length >= 4) {
+        return text;
+      }
+    }
+
+    const detailTitle = document.querySelector('.QuestionHeader-title');
+    return this.normalizeText(detailTitle?.textContent || '');
+  }
+
+  private extractAnswerPreview(element: HTMLElement): string {
+    const answerSelectors = [
+      '.RichContent-inner',
+      '.RichText',
+      '[itemprop="text"]',
+    ];
+
+    for (const selector of answerSelectors) {
+      const contentEl = element.querySelector(selector) as HTMLElement | null;
+      const text = this.extractCleanText(contentEl);
+      if (text.length >= 20) {
+        return this.buildPreview(text);
+      }
+    }
+
+    return '';
+  }
+
+  private extractCleanText(element: HTMLElement | null): string {
+    if (!element) {
+      return '';
+    }
+
     const textParts: string[] = [];
     
     const extract = (node: Node) => {
@@ -89,7 +165,25 @@ export class ZhihuAdapter extends PlatformAdapter {
     };
     
     element.childNodes.forEach(extract);
-    return textParts.join(' ').replace(/\s+/g, ' ').trim();
+    return this.normalizeText(textParts.join(' '));
+  }
+
+  private normalizeText(text: string): string {
+    return text.replace(/\s+/g, ' ').trim();
+  }
+
+  private buildPreview(text: string): string {
+    if (text.length <= this.previewMaxChars) {
+      return text;
+    }
+    return `${text.slice(0, this.previewMaxChars).trimEnd()}...`;
+  }
+
+  private buildModelInput(question: string, answerPreview: string): string {
+    if (question) {
+      return `问题：${question}\n回答预览：${answerPreview}`;
+    }
+    return answerPreview;
   }
 
   getContainer(element: HTMLElement): HTMLElement {

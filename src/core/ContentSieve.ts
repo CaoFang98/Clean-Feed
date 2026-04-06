@@ -47,8 +47,8 @@ export class ContentSieve {
   }
 
   private registerDetectors() {
-    this.detectors.set('ai-content', BackendDetector.getInstance('ai_generated'));
-    this.detectors.set('low-quality', BackendDetector.getInstance('low_quality'));
+    this.detectors.set('ai-content', BackendDetector.getInstance('is_ai_generated'));
+    this.detectors.set('low-quality', BackendDetector.getInstance('is_low_quality'));
   }
 
   private registerEffects() {

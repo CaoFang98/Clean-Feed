@@ -2,6 +2,11 @@ import { Detector } from './Detector';
 import { DetectionResult } from '../core/types';
 
 interface BackendResponse {
+  task_results?: Record<string, {
+    label: boolean | null;
+    confidence: number;
+    reason: string;
+  }>;
   is_low_quality: boolean;
   is_ai_generated: boolean;
   confidence: number;
@@ -13,31 +18,31 @@ interface BackendResponse {
 export class BackendDetector extends Detector {
   readonly id: string;
   readonly name: string;
-  readonly type: 'low_quality' | 'ai_generated';
+  readonly taskId: 'is_low_quality' | 'is_ai_generated';
   readonly apiUrl: string = 'http://127.0.0.1:8765/classify';
 
   private static instances: Map<string, BackendDetector> = new Map();
 
-  private constructor(id: string, name: string, type: 'low_quality' | 'ai_generated') {
+  private constructor(id: string, name: string, taskId: 'is_low_quality' | 'is_ai_generated') {
     super();
     this.id = id;
     this.name = name;
-    this.type = type;
+    this.taskId = taskId;
   }
 
-  public static getInstance(type: 'low_quality' | 'ai_generated'): BackendDetector {
-    const id = type === 'low_quality' ? 'low-quality-backend' : 'ai-content-backend';
-    const name = type === 'low_quality' ? '低质量内容检测(后端)' : 'AI内容检测(后端)';
+  public static getInstance(taskId: 'is_low_quality' | 'is_ai_generated'): BackendDetector {
+    const id = taskId === 'is_low_quality' ? 'low-quality-backend' : 'ai-content-backend';
+    const name = taskId === 'is_low_quality' ? '低质量内容检测(后端)' : 'AI内容检测(后端)';
     
     if (!BackendDetector.instances.has(id)) {
-      BackendDetector.instances.set(id, new BackendDetector(id, name, type));
+      BackendDetector.instances.set(id, new BackendDetector(id, name, taskId));
     }
     return BackendDetector.instances.get(id)!;
   }
 
   async detect(content: string): Promise<DetectionResult> {
     try {
-      console.log(`[CleanFeed] 🔍 调用后端 API (${this.type})...`);
+      console.log(`[CleanFeed] 🔍 调用后端 API (${this.taskId})...`);
       
       const platform = this.detectPlatform();
       
@@ -49,6 +54,7 @@ export class BackendDetector extends Detector {
         body: JSON.stringify({
           text: content.substring(0, 3000),
           platform: platform,
+          task_ids: [this.taskId],
         }),
       });
 
@@ -67,8 +73,12 @@ export class BackendDetector extends Detector {
       // 根据检测器类型返回对应的结果
       let shouldFilter = false;
       let confidence = 0;
+      const taskResult = data.task_results?.[this.taskId];
 
-      if (this.type === 'low_quality') {
+      if (taskResult) {
+        shouldFilter = taskResult.label === true;
+        confidence = taskResult.confidence;
+      } else if (this.taskId === 'is_low_quality') {
         shouldFilter = data.is_low_quality;
         confidence = data.is_low_quality ? data.confidence : 1 - data.confidence;
       } else {
@@ -82,8 +92,9 @@ export class BackendDetector extends Detector {
         confidence: confidence,
         metadata: {
           label: data.label,
-          reason: data.reason,
+          reason: taskResult?.reason || data.reason,
           rag_example: data.rag_example,
+          taskResult,
         },
       };
     } catch (error) {
@@ -121,7 +132,7 @@ export class BackendDetector extends Detector {
     let shouldFilter = false;
     let confidence = 0.5;
 
-    if (this.type === 'low_quality') {
+    if (this.taskId === 'is_low_quality') {
       shouldFilter = lqCount > 0;
       confidence = Math.min(0.9, 0.5 + lqCount * 0.15);
     } else {

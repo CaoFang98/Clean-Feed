@@ -124,7 +124,7 @@ class CleanFeedDetector:
 
     def build_prompt(self, text: str) -> str:
         return f"""请对以下内容执行任务 {self.task_id}，只输出 JSON：
-{{"task_id":"{self.task_id}","label":true/false/null,"reason":"原因","evidence":"证据片段","confidence":0.xx}}
+{{"label":true/false/null}}
 
 内容：
 {text[:1200]}

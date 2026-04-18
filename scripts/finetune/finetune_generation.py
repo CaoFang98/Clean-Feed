@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 任务化生成式微调脚本：
-针对单个 task_id 训练模型输出 JSON: {task_id, label, reason, evidence}
+针对单个 task_id 训练模型输出最小 JSON: {"label": true/false}
+并且只对答案部分计算 loss。
 """
 import argparse
 import json
@@ -231,37 +232,54 @@ def preprocess_data(dataset, tokenizer, task_id: str, max_seq_len: int):
     def format_example(example):
         text = example["text"]
         label = bool(example["task_label"])
-        reason = example.get("task_reason", "")
         prompt = f"""请对以下内容执行任务 {task_id}。
 任务说明：{task_def['description']}
-输出 JSON，格式：
-{{"task_id":"{task_id}","label":true/false,"reason":"原因","evidence":"证据片段"}}
+只输出 JSON，格式：
+{{"label":true/false}}
 
 内容：
 {text[:500]}
 输出："""
-        output = json.dumps(
-            {
-                "task_id": task_id,
-                "label": label,
-                "reason": reason,
-                "evidence": text[:80] if label else "",
-            },
-            ensure_ascii=False,
-        )
-        return {"full_text": prompt + output + tokenizer.eos_token}
+        output = json.dumps({"label": label}, ensure_ascii=False) + tokenizer.eos_token
+        return {"prompt_text": prompt, "answer_text": output}
 
     def tokenize_function(examples):
-        tokenized = tokenizer(
-            examples["full_text"],
-            padding="max_length",
-            truncation=True,
-            max_length=max_seq_len,
-            return_tensors="pt",
-        )
-        tokenized["labels"] = tokenized["input_ids"].clone()
-        tokenized["labels"][tokenized["attention_mask"] == 0] = -100
-        return tokenized
+        batch_input_ids = []
+        batch_attention_mask = []
+        batch_labels = []
+
+        for prompt_text, answer_text in zip(examples["prompt_text"], examples["answer_text"]):
+            prompt_ids = tokenizer(prompt_text, add_special_tokens=False)["input_ids"]
+            answer_ids = tokenizer(answer_text, add_special_tokens=False)["input_ids"]
+
+            if len(answer_ids) >= max_seq_len:
+                raise ValueError(
+                    f"答案 token 长度 {len(answer_ids)} 超过 max_seq_len={max_seq_len}，"
+                    "请增大 max_seq_len。"
+                )
+
+            max_prompt_len = max_seq_len - len(answer_ids)
+            prompt_ids = prompt_ids[:max_prompt_len]
+
+            input_ids = prompt_ids + answer_ids
+            attention_mask = [1] * len(input_ids)
+            labels = ([-100] * len(prompt_ids)) + answer_ids
+
+            pad_len = max_seq_len - len(input_ids)
+            if pad_len > 0:
+                input_ids += [tokenizer.pad_token_id] * pad_len
+                attention_mask += [0] * pad_len
+                labels += [-100] * pad_len
+
+            batch_input_ids.append(input_ids)
+            batch_attention_mask.append(attention_mask)
+            batch_labels.append(labels)
+
+        return {
+            "input_ids": batch_input_ids,
+            "attention_mask": batch_attention_mask,
+            "labels": batch_labels,
+        }
 
     dataset = dataset.map(format_example, desc=f"格式化 {task_id} 样本")
     tokenized_dataset = dataset.map(tokenize_function, batched=True, desc=f"Tokenize {task_id} 样本")

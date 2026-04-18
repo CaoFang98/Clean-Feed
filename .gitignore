@@ -37,6 +37,7 @@ venv/
 # Temporary files
 *.tmp
 *.temp
+*.cache
 
 # Environment variables
 .env

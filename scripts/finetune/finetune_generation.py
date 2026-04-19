@@ -16,7 +16,7 @@ if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
 from task_config import TASK_DEFINITIONS
-from finetune.task_dataset_utils import load_task_dataframe, split_task_dataframe
+from finetune.task_dataset_utils import load_task_dataframe, rebalance_train_dataframe, split_task_dataframe
 
 
 def check_dependencies():
@@ -71,11 +71,53 @@ def parse_args():
     parser.add_argument("--learning_rate", type=float, default=2e-4)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--gradient_accumulation_steps", type=int, default=2)
+    parser.add_argument(
+        "--rebalance_train",
+        type=str,
+        default="on",
+        choices=["on", "off"],
+        help="是否只对训练集做轻度重平衡；默认开启",
+    )
+    parser.add_argument(
+        "--max_negative_ratio",
+        type=float,
+        default=3.0,
+        help="训练集重平衡后允许的最大负正样本比，例如 3.0 表示最多 3:1",
+    )
     parser.add_argument("--output_dir", type=str, default="./generation_model")
     return parser.parse_args()
 
 
-def load_data(data_path: str, task_id: str, annotation_field: str, text_field: str, test_size: float):
+def maybe_rebalance_train_df(train_df, *, rebalance_train: str, max_negative_ratio: float):
+    if rebalance_train == "off":
+        print("📌 训练集重平衡: 关闭")
+        return train_df
+
+    balanced_train_df, stats = rebalance_train_dataframe(
+        train_df,
+        max_negative_ratio=max_negative_ratio,
+        random_state=42,
+    )
+    print(
+        "📌 训练集重平衡: "
+        f"{stats['strategy']} | "
+        f"original positive={stats['original_positive']}, negative={stats['original_negative']} -> "
+        f"balanced positive={stats['balanced_positive']}, negative={stats['balanced_negative']} | "
+        f"added_positive={stats['added_positive']} | "
+        f"max_negative_ratio={max_negative_ratio:g}"
+    )
+    return balanced_train_df
+
+
+def load_data(
+    data_path: str,
+    task_id: str,
+    annotation_field: str,
+    text_field: str,
+    test_size: float,
+    rebalance_train: str,
+    max_negative_ratio: float,
+):
     from datasets import Dataset, DatasetDict
     from sklearn.model_selection import train_test_split
 
@@ -96,6 +138,11 @@ def load_data(data_path: str, task_id: str, annotation_field: str, text_field: s
         random_state=42,
         stratify=df["task_label"],
     )
+    train_df = maybe_rebalance_train_df(
+        train_df,
+        rebalance_train=rebalance_train,
+        max_negative_ratio=max_negative_ratio,
+    )
     return DatasetDict({
         "train": Dataset.from_pandas(train_df),
         "test": Dataset.from_pandas(test_df),
@@ -108,6 +155,8 @@ def load_split_data(
     task_id: str,
     annotation_field: str,
     text_field: str,
+    rebalance_train: str,
+    max_negative_ratio: float,
 ):
     from datasets import Dataset, DatasetDict
 
@@ -131,6 +180,11 @@ def load_split_data(
     )
     print(
         f"📌 验证集: {len(val_df)} | positive={val_positive} | negative={val_negative}"
+    )
+    train_df = maybe_rebalance_train_df(
+        train_df,
+        rebalance_train=rebalance_train,
+        max_negative_ratio=max_negative_ratio,
     )
 
     return DatasetDict({
@@ -341,6 +395,8 @@ def main():
             args.task_id,
             args.annotation_field,
             args.text_field,
+            args.rebalance_train,
+            args.max_negative_ratio,
         )
     else:
         dataset = load_data(
@@ -349,6 +405,8 @@ def main():
             args.annotation_field,
             args.text_field,
             args.test_size,
+            args.rebalance_train,
+            args.max_negative_ratio,
         )
     model, tokenizer, _, _, training_precision = load_model_and_tokenizer_with_runtime(
         args.model_name,

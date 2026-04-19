@@ -257,6 +257,8 @@ def evaluate_dataset(
         raise ValueError("没有可评估的样本")
 
     tp = tn = fp = fn = unknown = 0
+    pred_positive = pred_negative = 0
+    gold_positive = gold_negative = 0
     samples = []
     total_time = 0.0
 
@@ -268,8 +270,20 @@ def evaluate_dataset(
         pred_label = pred["label"]
         total_time += pred["process_time"]
 
+        if gold is True:
+            gold_positive += 1
+        elif gold is False:
+            gold_negative += 1
+
         if pred_label is None:
             unknown += 1
+        elif pred_label is True:
+            pred_positive += 1
+        elif pred_label is False:
+            pred_negative += 1
+
+        if pred_label is None:
+            pass
         elif pred_label is True and gold is True:
             tp += 1
         elif pred_label is False and gold is False:
@@ -314,6 +328,14 @@ def evaluate_dataset(
     print(f"文本字段: {resolved_text_field}")
     print(f"样本数: {len(labeled_items)}")
     print(f"device: {detector.device}, dtype: {detector.dtype_name}")
+    print(f"gold_positive: {gold_positive}")
+    print(f"gold_negative: {gold_negative}")
+    print(f"pred_positive: {pred_positive}")
+    print(f"pred_negative: {pred_negative}")
+    print(f"tp: {tp}")
+    print(f"tn: {tn}")
+    print(f"fp: {fp}")
+    print(f"fn: {fn}")
     print(f"accuracy: {accuracy:.4f}")
     print(f"precision: {precision:.4f}")
     print(f"recall: {recall:.4f}")

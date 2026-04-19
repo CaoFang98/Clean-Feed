@@ -96,3 +96,55 @@ def split_task_dataframe(df, *, val_size: float, test_size: float, random_state:
 
     return train_df.copy(), val_df.copy(), test_df.copy()
 
+
+def rebalance_train_dataframe(df, *, max_negative_ratio: float, random_state: int):
+    import math
+    import pandas as pd
+
+    if max_negative_ratio <= 0:
+        raise ValueError("max_negative_ratio 必须大于 0")
+
+    positive_df = df[df["task_label"] == True]  # noqa: E712
+    negative_df = df[df["task_label"] == False]  # noqa: E712
+
+    positive = len(positive_df)
+    negative = len(negative_df)
+    if positive == 0 or negative == 0:
+        return df.copy(), {
+            "original_positive": positive,
+            "original_negative": negative,
+            "balanced_positive": positive,
+            "balanced_negative": negative,
+            "added_positive": 0,
+            "strategy": "unchanged",
+        }
+
+    current_negative_ratio = negative / positive
+    if current_negative_ratio <= max_negative_ratio:
+        return df.sample(frac=1, random_state=random_state).reset_index(drop=True), {
+            "original_positive": positive,
+            "original_negative": negative,
+            "balanced_positive": positive,
+            "balanced_negative": negative,
+            "added_positive": 0,
+            "strategy": "unchanged",
+        }
+
+    target_positive = math.ceil(negative / max_negative_ratio)
+    added_positive = target_positive - positive
+    sampled_positive_df = positive_df.sample(
+        n=added_positive,
+        replace=True,
+        random_state=random_state,
+    )
+    balanced_df = pd.concat([negative_df, positive_df, sampled_positive_df], ignore_index=True)
+    balanced_df = balanced_df.sample(frac=1, random_state=random_state).reset_index(drop=True)
+
+    return balanced_df, {
+        "original_positive": positive,
+        "original_negative": negative,
+        "balanced_positive": target_positive,
+        "balanced_negative": negative,
+        "added_positive": added_positive,
+        "strategy": "oversample_positive",
+    }
